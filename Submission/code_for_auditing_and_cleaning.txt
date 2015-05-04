@@ -1,0 +1,268 @@
+#Initial Imports
+import xml.etree.cElementTree as ET
+from collections import defaultdict
+import re
+import pprint
+
+#SourceFile - This sourcefile changed with each iteration of the cleaning.
+sourcefile = ('C:/.../Documents/Udacity - NanoDegree/DataWranglingWithMongoDB/Map_TriCities.xml')
+
+#Street Type Regular Expression Check
+street_type_re = re.compile(r'\b\S+\.?$', re.IGNORECASE)
+
+#Audit Street Type - First function to check if street type is expected and build list of exceptions.
+def audit_street_type(street_types, street_name):
+    m = street_type_re.search(street_name)
+    if m:
+        street_type = m.group()
+        if street_type not in expected:
+	    street_types[street_type].add(street_name)
+	    return 1
+
+#Is Highway was used to determine if 'Ways' were streets.
+def is_highway(elem):
+    answer = 0
+    for tag in elem.iter("tag"):
+        if tag.attrib['k'] == "highway":
+            answer = 1
+    return answer
+
+#Is_Street_name is used to check for presence of street name for nodes.
+def is_street_name(elem):
+    return (elem.attrib['k'] == "addr:street")
+
+#Is_Street_name2 is used to check for presence of street name for ways after checking Is_Highway.
+def is_street_name2(elem):
+    return (elem.attrib['k'] == "name")
+
+
+
+#List of Acceptable Street Types - Final list of all acceptable street types.
+expected = ["Street", "Avenue", "Boulevard", "Drive", "Court", "Place", "Square", "Lane", "Road", 
+            "Trail", "Parkway", "Commons", "Crescent", "Way", "Walk", "Circle", "Close", "East", "West", "North", "South",
+	    "Access", "Gate", "Line", "1", "14", "154", "172", "183","2","24","32","34","4","40","401","7","7/8","8","85","Boardwalk",
+	    "Walkway", "Collectors", "Courtyard","Cove","Crossing","Greenway","Heights","Hill","Hollow","Manor","Park","Ridge","Run","Sideroad",
+	    "Creek","Terrace","View"]
+
+
+#Update Name Function for Bad Street Names
+def update_name(name, mapping):
+
+    street_type = street_type_re.search(name).group()
+    street_name = street_type_re.split(name)
+
+    for old_name, new_name in mapping.items():
+
+        if street_type == old_name:
+            street_type = new_name
+        name = street_name[0] + street_type
+
+    return name
+
+#Street Name Mapping to Correct types
+mapping = { "St": "Street",
+            "Rd": "Road",
+            "AVenue": "Avenue",
+	    "S": "South",
+	    "Stree": "Street",
+	    "Pleace": "Place",		
+	    "Ave": "Avenue",
+	    "Blvd": "Boulevard",
+	    "Crecent": "Crescent",
+	    "Cresecnt": "Crescent",
+	    "Dr": "Drive",
+	    "Dr.": "Drive",
+	    "N": "North",
+	    "E": "East",
+	    "W": "West",
+	    "dr": "Drive"          
+	    }
+
+#Audit Function with write to output file - for first pass to including mapping to correct version of street name
+def audit(osmfile):
+    with open('NewFile.xml', 'w') as t:
+       t.write("<osm>")
+       osm_file = open(osmfile, "r")
+       street_types = defaultdict(set)
+       for event, elem in ET.iterparse(osm_file, events=("start",)):
+           if elem.tag == "node":
+               for tag in elem.iter("tag"):
+                   if is_street_name(tag):
+                       if audit_street_type(street_types, tag.attrib['v']) == 1:
+                           tag.attrib['v'] = update_name(tag.attrib['v'],mapping)
+               for line in ET.tostring(elem):
+                   t.write(line)
+           elif elem.tag =="way":
+               if is_highway(elem) == 1:
+                   for tag in elem.iter("tag"):
+                       if is_street_name2(tag):
+                           if audit_street_type(street_types, tag.attrib['v']) ==1:
+                               tag.attrib['v'] = update_name(tag.attrib['v'],mapping)
+               for line in ET.tostring(elem):
+                   t.write(line)
+           elif elem.tag == "relation":
+               for line in ET.tostring(elem):
+                   t.write(line)
+       t.write("</osm>")
+    return street_types
+
+
+#Audit Function 2 - Remove entries that still don't conform to expected
+def audit2(osmfile):
+    with open('NewFile.xml', 'w') as t:
+       t.write("<osm>")
+       osm_file = open(osmfile, "r")
+       street_types = defaultdict(set)
+       for event, elem in ET.iterparse(osm_file, events=("start",)):
+           if elem.tag == "node":
+               delete_check = 0
+               for tag in elem.iter("tag"):
+                   if is_street_name(tag):
+                       delete_check = audit_street_type(street_types, tag.attrib['v'])  
+               if delete_check != 1:
+                   for line in ET.tostring(elem):
+                       t.write(line)
+           elif elem.tag =="way":
+               delete_check = 0
+               if is_highway(elem) == 1:
+                   for tag in elem.iter("tag"):
+                       if is_street_name2(tag):
+                           delete_check = audit_street_type(street_types, tag.attrib['v'])
+               if delete_check != 1:
+                   for line in ET.tostring(elem):
+                       t.write(line)
+           elif elem.tag == "relation":
+               for line in ET.tostring(elem):
+                   t.write(line)
+       t.write("</osm>")
+    return street_types
+
+
+
+#Audit Function 3 - Remove entries that aren't 'Nodes' or 'Ways'
+def audit3(osmfile):
+    with open('NewFile.xml', 'w') as t:
+       t.write("<osm>")
+       osm_file = open(osmfile, "r")
+
+       for event, elem in ET.iterparse(osm_file, events=("start",)):
+           if elem.tag == "node" or elem.tag == "way":
+               for line in ET.tostring(elem):
+               	t.write(line)
+
+       t.write("</osm>")
+
+
+
+
+
+
+#Building Street Types
+st_types = audit(sourcefile)
+
+
+#Print Street Types
+pprint.pprint(dict(st_types))
+
+
+#Count Tages
+def count_tags(sourcefile):
+        tagscount = dict()
+        for event, elem in ET.iterparse(sourcefile, events=("start",)):
+            if elem.tag in tagscount:
+                tagscount[elem.tag] +=1
+            else:
+                tagscount[elem.tag] = 1
+
+
+        return tagscount
+
+#imports needed for process mapping
+import xml.etree.ElementTree as ET
+import pprint
+import re
+import codecs
+import json
+
+
+#Regular Expressions used in the process mapping
+lower = re.compile(r'^([a-z]|_)*$')
+lower_colon = re.compile(r'^([a-z]|_)*:([a-z]|_)*$')
+problemchars = re.compile(r'[=\+/&<>;\'"\?%#$@\,\. \t\r\n]')
+startaddr = re.compile(r'^addr:')
+CREATED = [ "version", "changeset", "timestamp", "user", "uid"]
+
+
+#Process Map - Converts Source File into .json for loading into MongoDB
+def process_map(file_in, pretty = False):
+    # You do not need to change this file
+    file_out = "{0}.json".format(file_in)
+    data = []
+    with codecs.open(file_out, "w") as fo:
+        for _, element in ET.iterparse(file_in):
+            el = shape_element(element)
+            if el:
+                data.append(el)
+                if pretty:
+                    fo.write(json.dumps(el, indent=2)+"\n")
+                else:
+                    fo.write(json.dumps(el) + "\n")
+
+    return data
+
+#Shape Element function from Lesson Six called from the Process Map function above to reshape the data. 
+def shape_element(element):
+    node = {}
+    if element.tag == "way" or element.tag == "node" :
+        node["id"] = element.attrib["id"]
+        node["type"] = element.tag
+        #'Visible' is not found in my dataset
+	#node["visible"] = element.get("visible")
+
+        created = {}
+        created["version"] = element.attrib["version"]
+        created["changeset"] = element.attrib["changeset"]
+        created["timestamp"] = element.attrib["timestamp"]
+        created["user"] = element.attrib["user"]
+        created["uid"] = element.attrib["uid"]
+
+        node["created"] = created
+
+        if "lat" in element.keys() and "lon" in element.keys():
+           pos = [float(element.attrib["lat"]), float(element.attrib["lon"])]        
+           node["pos"] = pos
+        else:
+           node["pos"] = None
+
+        address = {}
+        for tag in element.iter("tag"):
+            tag_name = tag.attrib["k"]
+            value = tag.attrib["v"]
+            if not re.search(problemchars, tag_name):
+                if re.search(startaddr,tag_name):
+                    if len(tag_name.split(":")) == 2:
+                        add_key = tag_name.split(":")[1]
+                        address[add_key] = value
+
+                else:
+                    node[tag_name] = value
+
+                if address:
+                    node["address"] = address
+
+        if element.tag == "way":
+            node_refs = []
+            for nd in element.iter("nd"):
+                if "ref" in nd.keys():
+                   node_refs.append(nd.get("ref"))
+            node["node_refs"] = node_refs    
+
+
+        #pprint.pprint(node)
+
+
+        return node
+    else:
+        return None
+
+
